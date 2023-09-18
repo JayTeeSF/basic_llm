@@ -3,11 +3,11 @@
 require 'matrix'
 
 class Token
-  attr_reader :id, :text
+  attr_reader :id, :word
 
-  def initialize(id, text)
+  def initialize(id, word)
     @id = id
-    @text = text
+    @word = word
   end
 
   def to_i
@@ -15,7 +15,7 @@ class Token
   end
 
   def to_s
-    "#{@id}) #{@text}" 
+    "#{id}: >>#{@word}<<" 
   end
   UNK = new(0, '<UNK>')
 end
@@ -25,11 +25,16 @@ class Embeddings
     # Load corpus
     corpus = File.read(corpus_file)
 
-    # Extract vocabulary
-    new(corpus.split)
+    new(corpus)
   end
 
-  def initialize(word_token_array)
+  attr_reader :vocab, :vocab_size
+  attr_reader :word_to_token, :id_to_token # DEBUG ONLY
+
+  def initialize(text, vocab_size: 20_000, size: 10)
+    @vocab_size = vocab_size
+    @size = size
+    word_token_array = Tokenizer.split(text)
     @embeddings = {}
 
     freqs = Hash.new(0)
@@ -37,10 +42,15 @@ class Embeddings
       freqs[Token.new(i, wt)] += 1
     end
 
-    vocab = freqs.keys.sort_by{ |t| freqs[t] }.reverse[0..10]
+    # Extract vocabulary, from most frequent tokens
+    @vocab = freqs.keys.sort_by{ |t| freqs[t] }.reverse[0..@vocab_size]
+    @word_to_token = @vocab.reduce({}) {|m,t| m[t.word] = t; m }
+    @id_to_token = @vocab.reduce({}) {|m,t| m[t.id] = t; m }
 
-    vocab.each do |token|
-      @embeddings[token] = Array.new(10) { rand }
+    @vocab.each do |token|
+      # @embeddings[token] = Array.new(@size) { rand }
+      @embeddings[token] = Matrix.rows([[rand]] * size)
+      # @embeddings[token] = Matrix.column_vector([[rand]] * size)
     end
   end
 
@@ -49,19 +59,20 @@ class Embeddings
   end
 
   def lookup_by_id(token_id)
-    @embeddings.find {|t| t.id == token_id}
+    @id_to_token[token_id]
   end
 
   def lookup(token)
-    @embeddings[token]
+    # @embeddings[token]
+    @embeddings[token] #.to_a
   end
 
   def [](token)
     lookup(token)
   end
 
-  def include?(token)
-    !! lookup(token)
+  def find_by_word(wt)
+    @word_to_token[wt]
   end
 end
 
@@ -74,11 +85,20 @@ class Feedforward
   end
 
   def forward(input)
-    z1 = input * @w1 + @b1
+    # input = Matrix.rows([[1, 2, 3], [4, 5, 6]])
+    # w1 = Matrix.rows([[7, 8, 9], [10, 11, 12]])
+    # b1 = Matrix.rows([[13, 14, 15]])
+
+    # Convert the input Array to a Matrix
+    input_matrix = Matrix.rows([input])
+    input_vector = input_matrix.to_vector
+
+    z1 = input_vector * w1 + b1
+    # z1 = input * @w1 + @b1
     a1 = relu(z1)
     z2 = a1 * @w2 + @b2
     a2 = z2
-    return a2
+    a2
   end
 
   private
@@ -97,23 +117,25 @@ class OutputLayer
   def forward(input)
     logits = input * @w + @b
     probs = softmax(logits)
-    return probs
+    probs
   end
 
-  private
-
   def softmax(scores)
-    total = scores.values.sum
-    probs = scores.each { |k, v| scores[k] = v / total }
-    probs
+    #total = scores.values.sum
+    #probs = scores.each { |k, v| scores[k] = v / total }
+    #probs
+    exp_scores = scores.map { |k, v| [k, Math.exp(v)] }
+    total = exp_scores.map { |_, v| v }.sum
+    norm_scores = exp_scores.map { |k, v| [k, v / total] }
+    norm_scores.to_h
   end
 end
 
 class Attention
   def initialize(embeddings)
     @embeddings = embeddings
-    @feedforward = Feedforward.new(embeddings.size, 20)
-    @output_layer = OutputLayer.new(20, embeddings.size)
+    @feedforward = Feedforward.new(embeddings.size, embeddings.size)
+    @output_layer = OutputLayer.new(embeddings.size, embeddings.size)
   end
 
   def debug?
@@ -137,9 +159,7 @@ class Attention
     end
 
     # Output layer
-    output = generate_output(vectors)
-
-    return output
+    generate_output(vectors)
   end
 
   private
@@ -148,68 +168,74 @@ class Attention
     # Look up the embeddings for the input tokens
     input_embeddings = input_tokens.map do |token|
       @embeddings[token]
-      #unless got
-      #  @embeddings[Token::UNK] =
-      #end
-      #@embeddings.include?(token) ? @embeddings[token] : @embeddings[Token::UNK]
-      # [token] || @embeddings[Token::UNK]
     end
 
-    print "Input Embedding Layer: \n#{input_embeddings.map(&:to_s)}\n\n"
+    # print "Input Embedding Layer: \n#{input_embeddings.map { |v| v.map(&:to_s) }}\n\n"
+    # print "1) Input Embedding Layer: \n#{input_embeddings.map(&:to_s)}\n\n"
+    print "Input Embedding Layer: #{input_embeddings}\n\n"
 
     # Return the input embeddings
-    return input_embeddings.map(&:id)
+    input_embeddings #.map { |v| v.map(&:to_i) }
   end
 
   # Self-attention(input_embeddings)
   def self_attend(vectors)
+    # Map input vectors to arrays
+    # arrays = vectors.map(&:to_a)
+    # columns = vectors.map(&:column)
+    columns = vectors.map { |v| v.column(0) }
+
+    # Convert input to matrix
+    # vectors = Matrix.rows(arrays)
+    # vectors = Matrix.columns(arrays)
+    vectors = Matrix.rows(columns)
+
     # Compute compatibility scores
     scores = {}
-    vectors.each_with_index do |query, i|
-      vectors.each_with_index do |key, j|
-        scores[[i, j]] = dot_product(query, key)
-      end
+    vectors.row_vectors.each_with_index do |query, i|
+      vectors.row_vectors.each_with_index do |key, j|  
+        scores[[i, j]] = query.dot(key)
+      end 
     end
 
     # Apply softmax
-    weights = softmax(scores)
+    weights = @output_layer.softmax(scores)
 
     # Calculate weighted average
     attended = []
-    # vectors.each_with_index do |_value, i|
-    vectors.size.times do |i|
+
+    # vectors.size.times do |i|
+    vectors.row_count.times do |i|
       weighted_sum = 0
 
       weights.each do |(i2, j), weight|
-        if i == i2
-          weighted_sum += weight * vectors[j] 
-        end
+        weighted_sum += weight * vectors[i, j] if i == i2
+        #  vectors[j]
+
       end
       attended << weighted_sum
     end
 
     print "Self-Attention Layer: \n#{attended}\n\n"
 
-    return attended
+    attended
   end
 
-  # dot_product(query, key)
-  def dot_product(x, y)
+  def dot_product(query, key)
     # query.transpose * key
-    x.inner_product(y)
+    # query.inner_product(key)
+    query.dot(key) 
   end
 
   def generate_output(vectors)
     output = @output_layer.forward(vectors)
-    print "Output:\n" if debug?
-    pp output if debug?
+    print "Output Layer: \n#{output}\n\n" if debug?
     output
   end
 
   def feedforward(vectors)
     outputs = @feedforward.forward(vectors)
-    print "Feedforward outputs:\n" if debug?
-    pp outputs if debug?
+    print "Feedforward outputs:\n #{outputs}\n\n" if debug?
     outputs
   end
 end
@@ -219,17 +245,19 @@ class Tokenizer
     @embeddings = embeddings
   end
 
+  def self.split(text)
+    text.split(' ')
+  end
   def tokenize(text)
-    tokens = text.split(' ')
+    word_tokens = Tokenizer.split(text)
 
-    # Convert to Tokens
+    # Convert to Word Tokens
     tokenized = []
-    tokens.each_with_index do |token, i|  
-      if @embeddings.include?(token)
-        tokenized << Token.new(i, token)
-      else
-        tokenized << Token::UNK
-      end
+    # word_tokens.each_with_index do |wt, i| # does it make sense to add an index to the tokens ...it won't match the embeddings?!
+    word_tokens.each do |wt|
+      token = @embeddings.find_by_word(wt) || Token::UNK
+      warn("Adding #{token} for #{wt}...")
+      tokenized << token
     end
 
     tokenized
@@ -239,16 +267,38 @@ end
 if __FILE__ == $PROGRAM_NAME
   corpus_file = 'corpus.txt'
   embeddings = Embeddings.from_file(corpus_file)
+  raise "All embedding tokens are UNK" if embeddings.vocab.all? {|t| t == Token::UNK }
+
   tokenizer = Tokenizer.new(embeddings)
 
-  input = "the dominant sequence transduction models"
+  input = "transduction problems such as language"
   tokens = tokenizer.tokenize(input)
 
   attention = Attention.new(embeddings)
-  pp tokens if attention.debug?
+
+  if attention.debug?
+    warn "Actual vocab size is: #{embeddings.vocab.size}, and they're not all <UNK> tokens, or this program would have already raised an exception"
+    pp "tokens from input: >>#{tokens}<<"
+    # puts 'Stringified Embedding Tokens:'
+    # embeddings.word_to_token.each {|w| puts("\t#{w}") }
+
+    embedded = attention.send(:embed,tokens)
+    print "tmp) Input Embedding Layer: \n#{embedded}\n\n"
+
+    attended = attention.send(:self_attend,embedded)
+    print "Self-Attention Layer: \n#{attended}\n\n"
+
+    fedforward = attention.send(:feedforward,attended)
+    print "Feedforward Layer: \n#{fedforward}\n\n"
+
+    output = attention.send(:generate_output,fedforward)
+    print "Output Layer: \n#{output}\n\n"
+  end
 
   raw_output = attention.attend(tokens)
-  output = raw_output.map {|t_id| embeddings.lookup_by_id(t_id) }
+  # output = raw_output.map {|t_id| embeddings.lookup_by_id(t_id) }
+  # output = raw_output.map {|vec| vec }
+  output = raw_output.map {|t| t.to_s }
 
   puts "Output: #{output}"
 end
