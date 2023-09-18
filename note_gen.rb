@@ -18,15 +18,29 @@ The goal is to build an attention-based language model like chatGPT or Claude, w
 
   The key is stacking multiple self-attention and feedforward layers between the in put and output, so that we have a full model that can learn complex relationships between words and sentence structure.
 
+  What's missing?
+  We are currently missing key components needed for a full trainable model, including:
+
+    -  A training loop that iterates through batches of input/target pairs
+    -  An optimizer to update model weights like stochastic gradient descent
+    -  A loss function to compare model outputs to targets like cross-entropy
+    -  Logging of training loss over time to track progress
+
+  To enable training, I would suggest adding:
+
+    -  A TrainableModel class that encapsulates the training loop, optimizer, and loss calc
+    -  An input pipeline using Dataset to load and batch the training data
+    -  A training script that initializes the model, trains it, and evaluates results
+
+  Be sure to add debug prints within the training loop to track metrics over time like loss and accuracy.
+  Include a snippet of what an expected output should look like, so that anybody reviewing these debug statements will know (for the most common cases) what to do
+
+
 Therefore, given our progress to-date, your remaining instructions are:
-1. Please find and fix the bugs in the full.rb code (see below). 
-2. If necessary, update the script that calls these classes to use an example that is supported by the sample from corpus.txt (see below).
-3. Use an unknown (UNK) token and supporting-code to handle unknown characters
-4. Complete any missing methods or method-logic.
-5. If anything is missing from the basic design (see below), 
-add it (i.e. missing classes or logic).
-6. If the basic design is complete say, "the design is complete".
-7. Per the basic design, update the script that runs the code to indicate the output at the barrier of each module (i.e. the tokens each arrow represents passing).
+1. Please find and fix the bugs in the current full.rb code (see below). 
+2. Complete any missing methods or method-logic.
+3. If necessary, update the script that calls these classes to include a mode for training...
+4. If anything is missing from the basic design (see below), or the training updates (see above) add it (i.e. missing classes or logic).
 EOF
 
 basic_design = <<-EOF
@@ -72,9 +86,9 @@ puts <<-EOF
 
 #{basic_design}
 
-#{code_run}
-
 #{corpus}
+
+#{code_run}
 
 #{codez}
 EOF
