@@ -36,11 +36,16 @@ The goal is to build an attention-based language model like chatGPT or Claude, w
   Include a snippet of what an expected output should look like, so that anybody reviewing these debug statements will know (for the most common cases) what to do
 
 
-Therefore, given our progress to-date, your remaining instructions are:
-1. Please find and fix the bugs in the current full.rb code (see below). 
+That said, given our progress to-date, your remaining instructions are:
+1. Please find and fix the bugs in the current full.rb code (see below):
+    a. start by explaining what the current Feedforward class does and how it works
+    b. explain where the initialized values and forward function inputs are coming from
+    c. explain what values (token_ids, weights, ?other?) are expected to fill the aforementioned initialization & function inputs
+    d. consider (based on the program output below) what values are being received
+    e. make adjustments in-line with the purpose of that class in the overall design (see below)
 2. Complete any missing methods or method-logic.
-3. If necessary, update the script that calls these classes to include a mode for training...
-4. If anything is missing from the basic design (see below), or the training updates (see above) add it (i.e. missing classes or logic).
+3. If necessary, update the script that calls these classes to include a mode that triggers training
+4. Add any missing classes or logic, i.e. training loop and backpropagation
 EOF
 
 basic_design = <<-EOF

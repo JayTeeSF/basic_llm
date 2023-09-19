@@ -49,8 +49,9 @@ class Embeddings
 
     @vocab.each do |token|
       # @embeddings[token] = Array.new(@size) { rand }
-      @embeddings[token] = Matrix.rows([[rand]] * size)
+      # @embeddings[token] = Matrix.rows([[rand]] * size)
       # @embeddings[token] = Matrix.column_vector([[rand]] * size)
+      @embeddings[token] = Matrix.columns([[rand]] * size) # vector embedding
     end
   end
 
@@ -78,9 +79,12 @@ end
 
 class Feedforward
   def initialize(embedding_dim, hidden_dim)
-    @w1 = Matrix.rows([[ Random.rand ] * embedding_dim])
+    # @w1 = Matrix.rows([[ Random.rand ] * embedding_dim])
+    # @w2 = Matrix.rows([[ Random.rand ] * hidden_dim])
+    @w1 = Matrix.build(hidden_dim, embedding_dim) {rand} # match dimensions
+    @w2 = Matrix.build(embedding_dim, hidden_dim) {rand}
+
     @b1 = Matrix.zero(hidden_dim, 1)
-    @w2 = Matrix.rows([[ Random.rand ] * hidden_dim])
     @b2 = Matrix.zero(embedding_dim, 1)
   end
 
@@ -89,12 +93,16 @@ class Feedforward
     # w1 = Matrix.rows([[7, 8, 9], [10, 11, 12]])
     # b1 = Matrix.rows([[13, 14, 15]])
 
-    # Convert the input Array to a Matrix
-    input_matrix = Matrix.rows([input])
-    input_vector = input_matrix.to_vector
+    ## Convert the input Array to a Matrix
+    #input_matrix = Matrix.rows([input])
+    ## Convert input_matrix Matrix to row vector
+    #input_vector = input_matrix.row_vectors[0]
+    #z1 = input_vector * @w1 + @b1
 
-    z1 = input_vector * w1 + b1
     # z1 = input * @w1 + @b1
+    input_matrix = Matrix.columns(input) # convert input to matrix
+
+    z1 = input_matrix * @w1 + @b1
     a1 = relu(z1)
     z2 = a1 * @w2 + @b2
     a2 = z2
@@ -170,8 +178,6 @@ class Attention
       @embeddings[token]
     end
 
-    # print "Input Embedding Layer: \n#{input_embeddings.map { |v| v.map(&:to_s) }}\n\n"
-    # print "1) Input Embedding Layer: \n#{input_embeddings.map(&:to_s)}\n\n"
     print "Input Embedding Layer: #{input_embeddings}\n\n"
 
     # Return the input embeddings
@@ -180,45 +186,71 @@ class Attention
 
   # Self-attention(input_embeddings)
   def self_attend(vectors)
-    # Map input vectors to arrays
-    # arrays = vectors.map(&:to_a)
-    # columns = vectors.map(&:column)
-    columns = vectors.map { |v| v.column(0) }
+    # columns = vectors #.map { |v| v.column(0) }
+    # vectors = Matrix.rows(columns)
+    #vectors = Matrix.columns(vectors)
+    vectors = vectors.transpose
+    vectors = Matrix.rows(vectors)
 
-    # Convert input to matrix
-    # vectors = Matrix.rows(arrays)
-    # vectors = Matrix.columns(arrays)
-    vectors = Matrix.rows(columns)
+    print "vectors shape: #{vectors.row_size} x #{vectors.column_size}\n"
 
-    # Compute compatibility scores
-    scores = {}
-    vectors.row_vectors.each_with_index do |query, i|
-      vectors.row_vectors.each_with_index do |key, j|  
-        scores[[i, j]] = query.dot(key)
-      end 
-    end
+    compatibility_scores = compute_compatibility_scores(vectors)
 
-    # Apply softmax
-    weights = @output_layer.softmax(scores)
+    weights = softmax(compatibility_scores)
 
-    # Calculate weighted average
-    attended = []
+    attended_vectors = calculate_weighted_average(vectors, weights)
 
-    # vectors.size.times do |i|
+    print "Self-Attention Layer: \n#{attended}\n\n"
+    attended_vectors
+  end
+
+  # Calculate weighted average
+  def calculate_weighted_average(vectors, weights)
+    attended = Array.new(vectors.row_size) {0}
+
     vectors.row_count.times do |i|
       weighted_sum = 0
 
       weights.each do |(i2, j), weight|
-        weighted_sum += weight * vectors[i, j] if i == i2
-        #  vectors[j]
+        if i == i2
+          if i < 0 || i >= vectors.row_size
+            print "Invalid index i = #{i}\n"
+          end
 
-      end
+          if j < 0 || j >= vectors.column_size
+            print "Invalid index j = #{j}\n"
+          end
+
+          print "Accessing vectors[#{i},#{j}]\n"
+
+          weighted_value = vectors[i, j]
+          if weighted_value.nil?
+            print "vectors[#{i},#{j}] returned nil!\n"
+          else
+            weighted_sum += weight * weighted_value
+          end
+        end # end-if
+      end # each-weights
       attended << weighted_sum
-    end
-
-    print "Self-Attention Layer: \n#{attended}\n\n"
+    end #end-row_count.times
 
     attended
+  end
+
+  def compute_compatibility_scores(vectors)
+    scores = {}
+    vectors.row_vectors.each_with_index do |query, i|
+      vectors.row_vectors.each_with_index do |key, j|
+        scores[[i, j]] = query.dot(key)
+      end
+    end
+
+    scores
+  end
+
+  # Apply softmax 
+  def softmax(scores)
+    @output_layer.softmax(scores) 
   end
 
   def dot_product(query, key)
@@ -286,13 +318,13 @@ if __FILE__ == $PROGRAM_NAME
     print "tmp) Input Embedding Layer: \n#{embedded}\n\n"
 
     attended = attention.send(:self_attend,embedded)
-    print "Self-Attention Layer: \n#{attended}\n\n"
+    print "tmp) Self-Attention Layer: \n#{attended}\n\n"
 
     fedforward = attention.send(:feedforward,attended)
-    print "Feedforward Layer: \n#{fedforward}\n\n"
+    print "tmp) Feedforward Layer: \n#{fedforward}\n\n"
 
     output = attention.send(:generate_output,fedforward)
-    print "Output Layer: \n#{output}\n\n"
+    print "tmp) Output Layer: \n#{output}\n\n"
   end
 
   raw_output = attention.attend(tokens)
